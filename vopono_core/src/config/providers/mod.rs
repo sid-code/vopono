@@ -92,6 +92,7 @@ impl VpnProvider {
             Self::Mullvad => Ok(Box::new(mullvad::Mullvad {})),
             Self::MozillaVPN => Ok(Box::new(mozilla::MozillaVPN {})),
             Self::AzireVPN => Ok(Box::new(azirevpn::AzireVPN {})),
+            Self::AirVPN => Ok(Box::new(airvpn::AirVPN {})),
             Self::IVPN => Ok(Box::new(ivpn::IVPN {})),
             Self::Custom => Err(anyhow!("Custom provider uses separate logic")),
             Self::Warp => Err(anyhow!("Cloudflare Warp supports only the Warp protocol")),
