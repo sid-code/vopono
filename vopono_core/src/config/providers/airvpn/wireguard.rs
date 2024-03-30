@@ -1,10 +1,14 @@
 use crate::config::providers::{UiClient, WireguardProvider};
 use crate::util::delete_all_files_in_dir;
+use regex::Regex;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::fs::create_dir_all;
+use std::io::{Read, Write};
 use std::vec::Vec;
+use trust_dns_resolver::proto::rr::RecordType;
+use trust_dns_resolver::Resolver;
 
 use super::AirVPN;
 
@@ -14,6 +18,8 @@ impl WireguardProvider for AirVPN {
         create_dir_all(&wireguard_dir)?;
         delete_all_files_in_dir(&wireguard_dir)?;
         let client = Client::new();
+
+        let resolver = Resolver::from_system_conf()?;
 
         let status = client
             .get("https://airvpn.org/api/status/")
@@ -26,11 +32,8 @@ impl WireguardProvider for AirVPN {
         let api_key = self.get_api_key(ui)?;
 
         for country in unique_countries {
-            // TODO: use DNS to get a list of actual servers and
-            // generate configs for each.
-            let path = wireguard_dir.join(format!("{country}.conf"));
-
-            let mut config = client
+            let mut config_str = String::new();
+            client
                 .get("https://airvpn.org/api/generator/")
                 .header("API-KEY", &api_key)
                 .query(&[
@@ -38,10 +41,29 @@ impl WireguardProvider for AirVPN {
                     ("protocols", "wireguard_3_udp_1637"),
                     ("servers", &country),
                 ])
-                .send()?;
+                .send()?
+                .read_to_string(&mut config_str)?;
 
-            let mut f = std::fs::File::create(path)?;
-            std::io::copy(&mut config, &mut f)?;
+            match resolver.lookup(format!("{country}.all.vpn.airdns.org."), RecordType::A) {
+                Ok(entry_ips) => {
+                    for (i, entry_ip) in entry_ips.iter().enumerate() {
+                        let pat = Regex::new(r"Endpoint = .+")?;
+
+                        let modified_config_str =
+                            pat.replace(&config_str, format!("Endpoint = {entry_ip}:1637"));
+
+                        let path = wireguard_dir.join(format!("{country}-{i}.conf"));
+
+                        let mut f = std::fs::File::create(path)?;
+
+                        write!(f, "{modified_config_str}")?;
+                    }
+                }
+                Err(err) => {
+                    println!("WHOOPS, {country} failed DNS lookup.");
+                    println!("{err}");
+                }
+            }
         }
 
         Ok(())
