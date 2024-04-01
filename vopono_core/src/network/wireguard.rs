@@ -613,6 +613,13 @@ impl FromStr for WireguardConfig {
     }
 }
 
+fn parse_ipnet_allowing_bare(s: &str) -> Result<IpNet, Box<dyn std::error::Error>> {
+    let trim = s.trim();
+    Ok(trim
+        .parse::<IpNet>()
+        .or_else(|_| trim.parse::<IpAddr>().map(|r| r.into()))?)
+}
+
 pub fn de_vec_ipnet<'de, D>(deserializer: D) -> Result<Vec<IpNet>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -621,8 +628,8 @@ where
     let raw = String::deserialize(deserializer)?;
     let strings = raw.split(',');
     match strings
-        .map(|x| x.trim().parse::<IpNet>())
-        .collect::<Result<Vec<IpNet>, ipnet::AddrParseError>>()
+        .map(|x| parse_ipnet_allowing_bare(x))
+        .collect::<Result<Vec<IpNet>, Box<dyn std::error::Error>>>()
     {
         Ok(x) => Ok(x),
         Err(x) => Err(serde::de::Error::custom(anyhow!(
